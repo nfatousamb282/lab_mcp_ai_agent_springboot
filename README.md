@@ -372,6 +372,56 @@ You should see a **404 page** (expected, no controller yet).
 
 ---
 
+# 🔹 STEP 1.5 — Setup CI/CD (Build & Test)
+
+> 🚨 **CI is mandatory immediately after STEP 1**
+
+**Issue**
+```
+[STEP 1.5] Setup CI to build and test the project
+```
+
+Create file:
+
+`.github/workflows/ci.yml`
+
+```yaml
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: Grant execute permission
+        run: chmod +x gradlew
+
+      - name: Build & Test
+        run: ./gradlew --no-daemon clean test
+```
+
+Validation:
+- GitHub Actions → **green build**
+- No secrets required at this stage
+
+(Optional) Add CI badge to `README.md`.
+
+---
+
 # 🔹 STEP 2 — Dependencies : use the LangChain4j BOM (keeps versions aligned)
 
 Edit `build.gradle`:
@@ -883,6 +933,262 @@ At the end of this lab, you have:
 7. Unit tests pass
 8. Docker image runs
 9. CI/CD is green
+
+---
+
+# 🔹 STEP 12 — Deploy on Minikube (Local Kubernetes)
+
+> 🎯 Goal: deploy both containers on a local Kubernetes cluster (Minikube) to validate Docker images in a near-production setup.
+
+This step deploys:
+- `ai-agent` (your Spring Boot app)
+- `github-mcp-server` (official GitHub MCP Server)
+
+**Inside Kubernetes:**
+- `ai-agent` calls the MCP server through a **ClusterIP service** (`http://github-mcp-server:3333/mcp`)
+- Claude (Anthropic) is called externally over HTTPS from the cluster
+
+---
+
+## 12.1 Prerequisites
+
+- `minikube` installed
+- `kubectl` installed
+- Docker installed
+
+Start Minikube:
+
+```bash
+minikube start --cpus=4 --memory=8192
+```
+
+Create a namespace:
+
+```bash
+kubectl create ns lab-agent
+```
+
+---
+
+## 12.2 Build and Load Images into Minikube
+
+### Option A (recommended): build directly in Minikube Docker
+
+```bash
+eval $(minikube -p minikube docker-env)
+```
+
+Build your agent image (from the student repo):
+
+```bash
+docker build -t ai-agent:dev .
+```
+
+Build the GitHub MCP Server image (from its repo):
+
+```bash
+git clone https://github.com/github/github-mcp-server.git
+cd github-mcp-server
+docker build -t github-mcp-server:dev .
+cd ..
+```
+
+> If the GitHub MCP Server project uses a different build command than `docker build`, follow its README.
+> The key requirement is to produce an image named `github-mcp-server:dev`.
+
+### Option B: build locally and load images
+
+```bash
+docker build -t ai-agent:dev .
+minikube image load ai-agent:dev
+minikube image load github-mcp-server:dev
+```
+
+---
+
+## 12.3 Create Secrets (Anthropic + GitHub)
+
+Create a single secret containing both API keys:
+
+```bash
+kubectl -n lab-agent create secret generic agent-secrets \
+  --from-literal=ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
+  --from-literal=GITHUB_TOKEN="$GITHUB_TOKEN"
+```
+
+✅ This keeps secrets out of your images and out of Git.
+
+---
+
+## 12.4 Deploy GitHub MCP Server (Deployment + Service)
+
+Create `k8s/github-mcp.yaml`:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: github-mcp-server
+  namespace: lab-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: github-mcp-server
+  template:
+    metadata:
+      labels:
+        app: github-mcp-server
+    spec:
+      containers:
+        - name: github-mcp-server
+          image: github-mcp-server:dev
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: agent-secrets
+                  key: GITHUB_TOKEN
+          ports:
+            - containerPort: 3333
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: github-mcp-server
+  namespace: lab-agent
+spec:
+  selector:
+    app: github-mcp-server
+  ports:
+    - name: http
+      port: 3333
+      targetPort: 3333
+```
+
+Apply:
+
+```bash
+kubectl apply -f k8s/github-mcp.yaml
+```
+
+---
+
+## 12.5 Deploy AI Agent (Deployment + Service)
+
+### Ensure Spring reads MCP endpoint from env vars
+
+In your Spring config, confirm you support env vars:
+
+```yaml
+mcp:
+  base-url: ${MCP_BASE_URL:http://localhost:3333}
+  path: ${MCP_PATH:/mcp}
+```
+
+Create `k8s/ai-agent.yaml`:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-agent
+  namespace: lab-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ai-agent
+  template:
+    metadata:
+      labels:
+        app: ai-agent
+    spec:
+      containers:
+        - name: ai-agent
+          image: ai-agent:dev
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: agent-secrets
+                  key: ANTHROPIC_API_KEY
+            - name: MCP_BASE_URL
+              value: "http://github-mcp-server:3333"
+            - name: MCP_PATH
+              value: "/mcp"
+          ports:
+            - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-agent
+  namespace: lab-agent
+spec:
+  selector:
+    app: ai-agent
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+```
+
+Apply:
+
+```bash
+kubectl apply -f k8s/ai-agent.yaml
+```
+
+---
+
+## 12.6 Validate Pods & Services
+
+```bash
+kubectl -n lab-agent get pods
+kubectl -n lab-agent get svc
+```
+
+Logs:
+
+```bash
+kubectl -n lab-agent logs deploy/github-mcp-server -f
+kubectl -n lab-agent logs deploy/ai-agent -f
+```
+
+---
+
+## 12.7 Local Access (Port Forward)
+
+Expose the agent locally:
+
+```bash
+kubectl -n lab-agent port-forward svc/ai-agent 8080:8080
+```
+
+Test:
+
+```bash
+curl http://localhost:8080/api/agent/run \
+  -H "Content-Type: application/json" \
+  -d '{"prompt":"Create a GitHub task to add OpenTelemetry with OTLP exporter."}'
+```
+
+✅ Expected:
+- `ai-agent` calls Claude
+- `ai-agent` calls MCP server via Kubernetes service
+- MCP server creates a GitHub issue
+
+---
+
+## 12.8 Troubleshooting
+
+- **Connection refused**: MCP service not running → check `kubectl get pods`, logs.
+- **403 Forbidden**: token permissions insufficient → check fine-grained PAT (Issues RW).
+- **No tool calls**: strengthen system prompt (“MUST use tools”).
+- **Wrong MCP path**: verify GitHub MCP server endpoint and update `mcp.path`.
 
 ---
 
