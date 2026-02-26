@@ -2,6 +2,8 @@ package com.example.agent.tools;
 
 import com.example.agent.mcp.McpHttpClient;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
 import reactor.core.publisher.Mono;
 
 import java.util.Map;
@@ -12,7 +14,10 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 class GitHubMcpToolsTest {
-
+    @SpringBootTest
+    @ActiveProfiles("test")
+    class AgentControllerIT {
+    }
     @Test
     void should_call_mcp_tool() {
 
