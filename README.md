@@ -1619,7 +1619,7 @@ spec:
 Apply:
 
 ```bash
-kubectl apply -f k8s/github-mcp.yaml
+kubectl apply -f k8s/github-mcp-server.yaml
 ```
 
 ---
