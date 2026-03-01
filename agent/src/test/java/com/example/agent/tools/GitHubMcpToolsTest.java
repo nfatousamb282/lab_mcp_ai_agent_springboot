@@ -12,12 +12,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
-
+@SpringBootTest
+@ActiveProfiles("test")
 class GitHubMcpToolsTest {
-    @SpringBootTest
-    @ActiveProfiles("test")
-    class AgentControllerIT {
-    }
+
     @Test
     void should_call_mcp_tool() {
 
