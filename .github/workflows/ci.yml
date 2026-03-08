@@ -70,6 +70,7 @@ jobs:
         run: kubectl get nodes
 
       - name: Build Docker image inside Minikube
+        working-directory: agent
         run: |
           eval $(minikube -p minikube docker-env)
           docker build -t ai-agent:ci .
