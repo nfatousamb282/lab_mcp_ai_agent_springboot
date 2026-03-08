@@ -15,6 +15,17 @@ import java.util.List;
 @Configuration
 public class LangChainConfig {
 
+    /** Stub for CI: app must start without a real API key so the pod becomes Ready. */
+    @Bean
+    @Profile("ci")
+    public AnthropicChatModel anthropicChatModelCi() {
+        return AnthropicChatModel.builder()
+                .apiKey("ci-placeholder-no-real-calls")
+                .modelName("claude-3-5-sonnet")
+                .timeout(Duration.ofSeconds(5))
+                .build();
+    }
+
     @Bean
     @Profile("!ci")
     public AnthropicChatModel anthropicChatModel(
