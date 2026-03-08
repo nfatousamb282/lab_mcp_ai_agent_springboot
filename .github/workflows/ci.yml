@@ -86,13 +86,19 @@ jobs:
           minikube service list
 
       - name: Test service health endpoint
-        uses: nick-fields/retry@v3
-        with:
-          timeout_seconds: 10
-          max_attempts: 6
-          command: |
-            URL=$(minikube service ai-agent --url 2>&1 | grep -oE 'https?://[^[:space:]]+' | head -1)
-            curl -fsS "${URL}/actuator/health"
+        run: |
+          kubectl port-forward svc/ai-agent 8080:8080 &
+          PF_PID=$!
+          sleep 5
+          for i in $(seq 1 6); do
+            if curl -fsS http://127.0.0.1:8080/actuator/health; then
+              kill $PF_PID 2>/dev/null || true
+              exit 0
+            fi
+            sleep 2
+          done
+          kill $PF_PID 2>/dev/null || true
+          exit 1
 
       - name: Log pods on failure
         if: failure()
