@@ -7,6 +7,7 @@ import dev.langchain4j.service.AiServices;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
 
 import java.time.Duration;
 import java.util.List;
@@ -15,6 +16,7 @@ import java.util.List;
 public class LangChainConfig {
 
     @Bean
+    @Profile("!ci")
     public AnthropicChatModel anthropicChatModel(
             @Value("${anthropic.api-key}") String apiKey,
             @Value("${anthropic.model}") String model,

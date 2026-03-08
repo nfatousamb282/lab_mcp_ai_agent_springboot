@@ -7,6 +7,11 @@ anthropic:
   model: claude-opus-4-20250514
   timeout-seconds: 60
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
 mcp:
   base-url: http://localhost:3333
   path: /mcp
